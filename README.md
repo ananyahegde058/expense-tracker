@@ -62,7 +62,7 @@ A full-stack personal finance web app built from scratch with **FastAPI** (Pytho
 | Layer | Technology | Why |
 |---|---|---|
 | Backend framework | FastAPI (Python 3.8+) | Fast, async, auto-generates API docs at `/docs` |
-| ORM & database | SQLAlchemy + SQLite | Simple file-based DB, zero config for local dev |
+| ORM & database | SQLAlchemy + SQLite (local) / PostgreSQL (production) | SQLite for local dev, PostgreSQL on Render for persistent data |
 | Auth | python-jose (JWT) + passlib (bcrypt) | Industry-standard token auth + secure hashing |
 | Email | Brevo REST API over HTTPS | SMTP is blocked on Render free tier — HTTPS always works |
 | Frontend | Vanilla JS (ES Modules) | No build step, fast, lightweight |
@@ -144,7 +144,7 @@ expense-tracker/
 
 ## 🗄 Database
 
-The app uses **SQLite** by default — all data lives in a single file `backend/expenses.db`.
+The app uses **SQLite** for local development and **PostgreSQL** in production (Render). PostgreSQL ensures data persists across redeploys — SQLite resets every time Render restarts the service.
 
 ### Tables
 
@@ -173,15 +173,17 @@ for row in conn.execute('SELECT * FROM expenses LIMIT 10'): print(row)
 "
 ```
 
-### Upgrading to PostgreSQL
+### PostgreSQL in Production ✅
 
-SQLite resets on Render free tier redeploys (no persistent disk). For permanent production data, add a free Render PostgreSQL instance and set:
+This app is connected to a **Render PostgreSQL** (free tier) instance in production. Data persists permanently across all redeploys and restarts.
+
+Connection is configured via the `DATABASE_URL` environment variable (Internal Database URL from Render):
 
 ```env
-DATABASE_URL=postgresql://user:password@host/dbname
+DATABASE_URL=postgresql://user:password@dpg-xxxx-a/dbname
 ```
 
-No code changes needed — SQLAlchemy handles both automatically.
+SQLAlchemy handles both SQLite and PostgreSQL automatically — no code changes needed when switching.
 
 ---
 
@@ -222,8 +224,11 @@ Edit `.env`:
 JWT_SECRET_KEY=generate-a-long-random-string-here
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
-# Database (SQLite default — no changes needed for local dev)
+# Database
+# Local development — SQLite (no setup needed)
 DATABASE_URL=sqlite:///./expenses.db
+# Production (Render PostgreSQL — set this in Render environment variables)
+# DATABASE_URL=postgresql://user:password@dpg-xxxx-a/dbname
 
 # Email — Brevo API (NOT SMTP)
 BREVO_API_KEY=xkeysib-your-api-key-here
@@ -454,6 +459,28 @@ Generated a proper random secret and updated the Render environment variable:
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
+
+---
+
+### 🐛 Bug 7 — `ModuleNotFoundError: No module named 'psycopg2'`
+
+**Symptom** (from Render deploy logs):
+```
+ModuleNotFoundError: No module named 'psycopg2'
+Exited with status 1
+```
+
+**Root cause:**
+After adding a PostgreSQL database and setting `DATABASE_URL`, SQLAlchemy tried to connect using the `psycopg2` PostgreSQL driver — but it wasn't listed in `requirements.txt` so Render never installed it.
+
+**Fix:**
+Added `psycopg2-binary` to `requirements.txt`:
+```
+psycopg2-binary>=2.9.9
+```
+
+`psycopg2-binary` is used instead of `psycopg2` because the binary version comes pre-compiled and requires no system-level PostgreSQL libraries — which Render's build environment doesn't provide.
+
 ---
 
 ## 🔒 Privacy & Security
@@ -498,9 +525,6 @@ To get indexed by Google:
 
 ---
 
-## 📄 License
-
-MIT — free to use, modify, and deploy.
 
 ## 👩‍💻 Author
 
